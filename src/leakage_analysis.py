@@ -33,9 +33,23 @@ def flag_leakage(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     df.loc[df["is_mismatch"] & (df["delta_amt"] == 0), "leakage_direction"] = "Zero delta mismatch"
     df.loc[~df["is_mismatch"], "leakage_direction"] = "Within tolerance"
 
-    df[cfg.col_transaction_date] = pd.to_datetime(df[cfg.col_transaction_date])
-    df["year_month"] = df[cfg.col_transaction_date].dt.to_period("M").astype(str)
-    df["quarter"] = df[cfg.col_transaction_date].dt.to_period("Q").astype(str)
+    # transaction_date should already be python `date` objects from the loader.
+    # Avoid pandas datetime parsing in this environment.
+    # Derive period strings manually.
+    def _ym(d):
+        if d is None:
+            return None
+        return f"{d.year:04d}-{d.month:02d}"
+
+    def _q(d):
+        if d is None:
+            return None
+        q = (d.month - 1) // 3 + 1
+        return f"{d.year:04d}Q{q}"
+
+    df["year_month"] = df[cfg.col_transaction_date].map(_ym)
+    df["quarter"] = df[cfg.col_transaction_date].map(_q)
+
 
     return df
 

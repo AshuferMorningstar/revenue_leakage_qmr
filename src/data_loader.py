@@ -113,19 +113,30 @@ def load_and_validate_transactions(cfg: Config) -> Tuple[pd.DataFrame, Path]:
     for c in [cfg.col_transaction_amt, cfg.col_reported_amt]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # NOTE: pandas datetime parsing is crashing with a segmentation fault in this environment.
-    # Convert using a simple, explicit format when possible.
-    # Expected mock/input format is ISO date (YYYY-MM-DD).
-    df[cfg.col_transaction_date] = pd.to_datetime(
-        df[cfg.col_transaction_date].astype(str),
-        format="%Y-%m-%d",
-        errors="coerce",
-    )
+    # Datetime parsing is unstable in this environment (pandas/numpy ABI issues).
+    # Use a pure-Python fallback for the expected ISO input format: YYYY-MM-DD.
+    # This avoids pd.to_datetime (which is crashing with SystemError/segfaults).
+    date_strs = df[cfg.col_transaction_date].astype(str)
 
+    def _parse_iso_date(x: str):
+        try:
+            # Fast path for YYYY-MM-DD
+            parts = x.split("-")
+            if len(parts) != 3:
+                return None
+            y, m, d = map(int, parts)
+            from datetime import date
+
+            return date(y, m, d)
+        except Exception:
+            return None
+
+    df[cfg.col_transaction_date] = date_strs.map(_parse_iso_date)
 
     # Basic validation summary
     invalid_numeric = int(df[[cfg.col_transaction_amt, cfg.col_reported_amt]].isna().any(axis=1).sum())
     invalid_dates = int(df[[cfg.col_transaction_date]].isna().any(axis=1).sum())
+
 
     # Drop invalid rows (portfolio-safe approach)
     df = df.dropna(subset=[cfg.col_transaction_amt, cfg.col_reported_amt, cfg.col_transaction_date]).copy()
@@ -134,7 +145,8 @@ def load_and_validate_transactions(cfg: Config) -> Tuple[pd.DataFrame, Path]:
         raise ValueError("After validation, no rows remain. Check input data constraints.")
 
     # Normalize date to month/quarter later in analysis
-    df[cfg.col_transaction_date] = df[cfg.col_transaction_date].dt.date
+    # At this point df[cfg.col_transaction_date] is already python `date` objects (or None).
+
 
     # Ensure consistent column order
     df = df[REQUIRED_COLS]
