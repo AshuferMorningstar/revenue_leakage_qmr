@@ -113,7 +113,15 @@ def load_and_validate_transactions(cfg: Config) -> Tuple[pd.DataFrame, Path]:
     for c in [cfg.col_transaction_amt, cfg.col_reported_amt]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    df[cfg.col_transaction_date] = pd.to_datetime(df[cfg.col_transaction_date], errors="coerce")
+    # NOTE: pandas datetime parsing is crashing with a segmentation fault in this environment.
+    # Convert using a simple, explicit format when possible.
+    # Expected mock/input format is ISO date (YYYY-MM-DD).
+    df[cfg.col_transaction_date] = pd.to_datetime(
+        df[cfg.col_transaction_date].astype(str),
+        format="%Y-%m-%d",
+        errors="coerce",
+    )
+
 
     # Basic validation summary
     invalid_numeric = int(df[[cfg.col_transaction_amt, cfg.col_reported_amt]].isna().any(axis=1).sum())
